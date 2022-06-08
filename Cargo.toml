@@ -6,7 +6,7 @@ authors = [
 description = "Fetch and show tldr help pages for many CLI commands. Full featured offline client with caching support."
 homepage = "https://github.com/dbrgn/tealdeer/"
 license = "MIT/Apache-2.0"
-name = "tealdeer"
+name = "how-install-tealdeer"
 readme = "README.md"
 repository = "https://github.com/dbrgn/tealdeer/"
 documentation = "https://dbrgn.github.io/tealdeer/"
@@ -14,9 +14,9 @@ version = "1.5.0"
 include = ["/src/**/*", "/tests/**/*", "/Cargo.toml", "/README.md", "/LICENSE-*", "/screenshot.png"]
 edition = "2018"
 
-[[bin]]
-name = "tldr"
-path = "src/main.rs"
+#[[bin]]
+#name = "tldr"
+#path = "src/main.rs"
 
 [dependencies]
 ansi_term = "0.12.0"
@@ -26,7 +26,7 @@ atty = "0.2"
 clap = { version = "3", features = ["std", "derive", "suggestions", "color"], default-features = false }
 env_logger = { version = "0.9", optional = true }
 log = "0.4"
-reqwest = { version = "0.11.3", features = ["blocking"], default-features = false }
+reqwest = { version = "0.11.3", default-features = false }
 serde = "1.0.21"
 serde_derive = "1.0.21"
 toml = "0.5.1"

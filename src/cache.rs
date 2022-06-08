@@ -10,7 +10,7 @@ use std::{
 use anyhow::{ensure, Context, Result};
 use app_dirs::{get_app_root, AppDataType};
 use log::debug;
-use reqwest::{blocking::Client, Proxy};
+use reqwest::{Client, Proxy};
 use walkdir::{DirEntry, WalkDir};
 use zip::ZipArchive;
 
@@ -135,7 +135,7 @@ impl Cache {
     }
 
     /// Download the archive
-    fn download(&self) -> Result<Vec<u8>> {
+    async fn download(&self) -> Result<Vec<u8>> {
         let mut builder = Client::builder();
         if let Ok(ref host) = env::var("HTTP_PROXY") {
             if let Ok(proxy) = Proxy::http(host) {
@@ -150,21 +150,23 @@ impl Cache {
         let client = builder
             .build()
             .context("Could not instantiate HTTP client")?;
-        let mut resp = client
+        let buf = client
             .get(&self.url)
-            .send()?
+            .send()
+            .await?
             .error_for_status()
-            .with_context(|| format!("Could not download tldr pages from {}", &self.url))?;
-        let mut buf: Vec<u8> = vec![];
-        let bytes_downloaded = resp.copy_to(&mut buf)?;
-        debug!("{} bytes downloaded", bytes_downloaded);
+            .with_context(|| format!("Could not download tldr pages from {}", &self.url))?
+            .bytes()
+            .await?[..]
+            .to_vec();
+
         Ok(buf)
     }
 
     /// Update the pages cache.
-    pub fn update(&self) -> Result<()> {
+    pub async fn update(&self) -> Result<()> {
         // First, download the compressed data
-        let bytes: Vec<u8> = self.download()?;
+        let bytes: Vec<u8> = self.download().await?;
 
         // Decompress the response body into an `Archive`
         let mut archive = ZipArchive::new(Cursor::new(bytes))

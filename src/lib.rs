@@ -28,7 +28,6 @@ use std::{env, process};
 
 use app_dirs::AppInfo;
 use atty::Stream;
-use clap::Parser;
 
 mod cache;
 mod cli;
@@ -73,36 +72,36 @@ enum CheckCacheResult {
 }
 
 /// Check the cache for freshness. If it's stale or missing, show a warning.
-fn check_cache(args: &Args, enable_styles: bool) -> CheckCacheResult {
+fn check_cache(_args: &Args, _enable_styles: bool) -> CheckCacheResult {
     match Cache::freshness() {
         CacheFreshness::Fresh => CheckCacheResult::CacheFound,
-        CacheFreshness::Stale(_) if args.quiet => CheckCacheResult::CacheFound,
-        CacheFreshness::Stale(age) => {
-            print_warning(
-                enable_styles,
-                &format!(
-                    "The cache hasn't been updated for {} days.\n\
-                     You should probably run `tldr --update` soon.",
-                    age.as_secs() / 24 / 3600
-                ),
-            );
-            CheckCacheResult::CacheFound
+        //CacheFreshness::Stale(_) if args.quiet => CheckCacheResult::CacheFound,
+        CacheFreshness::Stale(_) => {
+            //print_warning(
+            //    enable_styles,
+            //    &format!(
+            //        "The cache hasn't been updated for {} days.\n\
+            //         You should probably run `tldr --update` soon.",
+            //        age.as_secs() / 24 / 3600
+            //    ),
+            //);
+            CheckCacheResult::CacheMissing
         }
         CacheFreshness::Missing => {
-            print_error(
-                enable_styles,
-                &anyhow::anyhow!(
-                    "Page cache not found. Please run `tldr --update` to download the cache."
-                ),
-            );
-            println!("\nNote: You can optionally enable automatic cache updates by adding the");
-            println!("following config to your config file:\n");
-            println!("  [updates]");
-            println!("  auto_update = true\n");
-            println!("The path to your config file can be looked up with `tldr --show-paths`.");
-            println!("To create an initial config file, use `tldr --seed-config`.\n");
-            println!("You can find more tips and tricks in our docs:\n");
-            println!("  https://dbrgn.github.io/tealdeer/config_updates.html");
+            //print_error(
+            //    enable_styles,
+            //    &anyhow::anyhow!(
+            //        "Page cache not found. Please run `tldr --update` to download the cache."
+            //    ),
+            //);
+            //eprintln!("\nNote: You can optionally enable automatic cache updates by adding the");
+            //eprintln!("following config to your config file:\n");
+            //eprintln!("  [updates]");
+            //eprintln!("  auto_update = true\n");
+            //eprintln!("The path to your config file can be looked up with `tldr --show-paths`.");
+            //eprintln!("To create an initial config file, use `tldr --seed-config`.\n");
+            //eprintln!("You can find more tips and tricks in our docs:\n");
+            //eprintln!("  https://dbrgn.github.io/tealdeer/config_updates.html");
             CheckCacheResult::CacheMissing
         }
     }
@@ -120,8 +119,8 @@ fn clear_cache(quietly: bool, enable_styles: bool) {
 }
 
 /// Update the cache
-fn update_cache(cache: &Cache, quietly: bool, enable_styles: bool) {
-    cache.update().unwrap_or_else(|e| {
+async fn update_cache(cache: &Cache, quietly: bool, enable_styles: bool) {
+    cache.update().await.unwrap_or_else(|e| {
         print_error(enable_styles, &e.context("Could not update cache"));
         process::exit(1);
     });
@@ -134,7 +133,7 @@ fn update_cache(cache: &Cache, quietly: bool, enable_styles: bool) {
 fn show_config_path(enable_styles: bool) {
     match get_config_path() {
         Ok((config_file_path, _)) => {
-            println!("Config path is: {}", config_file_path.to_str().unwrap());
+            eprintln!("Config path is: {}", config_file_path.to_str().unwrap());
         }
         Err(e) => {
             print_error(enable_styles, &e.context("Could not look up config path"));
@@ -186,11 +185,11 @@ fn show_paths(config: &Config) {
                 .map_or_else(|| "[Invalid]".to_string(), ToString::to_string)
         },
     );
-    println!("Config dir:       {}", config_dir);
-    println!("Config path:      {}", config_path);
-    println!("Cache dir:        {}", cache_dir);
-    println!("Pages dir:        {}", pages_dir);
-    println!("Custom pages dir: {}", custom_pages_dir);
+    eprintln!("Config dir:       {}", config_dir);
+    eprintln!("Config path:      {}", config_path);
+    eprintln!("Cache dir:        {}", cache_dir);
+    eprintln!("Pages dir:        {}", pages_dir);
+    eprintln!("Custom pages dir: {}", custom_pages_dir);
 }
 
 /// Create seed config file and exit
@@ -254,12 +253,38 @@ fn get_languages_from_env() -> Vec<String> {
     )
 }
 
-fn main() {
+pub async fn list() -> Vec<String> {
+    let args = Args {
+        command: vec![],
+        update: true,
+        quiet: true,
+        ..Args::default()
+    };
+
+    let config = Config::load(false).unwrap();
+    let platform: PlatformType = args.platform.unwrap_or_else(PlatformType::current);
+    let cache = Cache::new(ARCHIVE_URL, platform);
+
+    if let CheckCacheResult::CacheMissing = check_cache(&args, false) {
+        if should_update_cache(&args, &config) {
+            update_cache(&cache, args.quiet, false).await;
+        }
+    }
+
+    cache.list_pages().unwrap()
+}
+
+pub async fn main(cmd: String) {
     // Initialize logger
     init_log();
 
     // Parse arguments
-    let mut args = Args::parse();
+    let mut args = Args {
+        command: vec![cmd],
+        update: true,
+        quiet: true,
+        ..Args::default()
+    };
 
     // Determine the usage of styles
     #[cfg(target_os = "windows")]
@@ -347,9 +372,13 @@ fn main() {
     }
 
     // Cache update, pass through
-    let cache_updated = if should_update_cache(&args, &config) {
-        update_cache(&cache, args.quiet, enable_styles);
-        true
+    let cache_updated = if let CheckCacheResult::CacheMissing = check_cache(&args, enable_styles) {
+        if should_update_cache(&args, &config) {
+            update_cache(&cache, args.quiet, enable_styles).await;
+            true
+        } else {
+            false
+        }
     } else {
         false
     };
@@ -371,7 +400,7 @@ fn main() {
         });
 
         // Print pages
-        println!("{}", pages.join("\n"));
+        eprintln!("{}", pages.join("\n"));
         process::exit(0);
     }
 
@@ -399,21 +428,21 @@ fn main() {
                 print_error(enable_styles, e);
                 process::exit(1);
             }
-            process::exit(0);
-        } else {
-            if !args.quiet {
-                print_warning(
-                    enable_styles,
-                    &format!(
-                        "Page `{}` not found in cache.\n\
-                         Try updating with `tldr --update`, or submit a pull request to:\n\
-                         https://github.com/tldr-pages/tldr",
-                        &command
-                    ),
-                );
-            }
-            process::exit(1);
-        }
+            //process::exit(0);
+        } /*else {
+              if !args.quiet {
+                  print_warning(
+                      enable_styles,
+                      &format!(
+                          "Page `{}` not found in cache.\n\
+                           Try updating with `tldr --update`, or submit a pull request to:\n\
+                           https://github.com/tldr-pages/tldr",
+                          &command
+                      ),
+                  );
+              }
+              //process::exit(1);
+          }*/
     }
 }
 

@@ -44,7 +44,7 @@ pub fn print_page(
     }
 
     // Lock stdout only once, this improves performance considerably
-    let stdout = io::stdout();
+    let stdout = io::stderr();
     let mut handle = stdout.lock();
 
     if enable_markdown {
